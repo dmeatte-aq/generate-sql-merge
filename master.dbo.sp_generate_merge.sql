@@ -280,10 +280,13 @@ IF (@cols_to_include IS NULL) AND (@cols_to_exclude IS NULL)
 BEGIN
 	PRINT 'setting @cols_to_include...';
 	
-	DECLARE @Shared_Columns TABLE(COLUMN_NAME sysname);
+	CREATE TABLE #Shared_Columns(COLUMN_NAME sysname);
+	TRUNCATE TABLE #Shared_Columns;
 
 	DECLARE @diff_query NVARCHAR(1000) = '
-	SELECT COLUMN_NAME
+	INSERT INTO #Shared_Columns(COLUMN_NAME)
+	
+	(SELECT COLUMN_NAME
 	FROM ' + @database + '.INFORMATION_SCHEMA.COLUMNS src
 	WHERE 
 		src.TABLE_NAME = @source_tablename AND
@@ -295,9 +298,8 @@ BEGIN
 	FROM ' + @target_db + '.INFORMATION_SCHEMA.COLUMNS targ
 	WHERE 
 		targ.TABLE_NAME = @target_tablename AND
-		targ.TABLE_SCHEMA = @target_schema';
-
-	INSERT INTO @Shared_Columns
+		targ.TABLE_SCHEMA = @target_schema)';
+	
 	EXEC sp_executesql
 		@diff_query,
 		N'@source_schema sysname, @source_tablename sysname, @target_schema sysname, @target_tablename sysname',
@@ -310,18 +312,22 @@ BEGIN
 	SET @cols_to_include =
 		STUFF((
 				SELECT ',''' + COLUMN_NAME + '''' 
-				FROM @Shared_Columns 
+				FROM #Shared_Columns 
 				FOR XML PATH('')
 			), 1, 1, '');
+
+	DROP TABLE #Shared_Columns;
 END
 
 IF @cols_to_join_on IS NULL
 BEGIN
 	PRINT 'setting @cols_to_join_on...';
 
-	DECLARE @Shared_Keys TABLE(COLUMN_NAME sysname);
+	CREATE TABLE #Shared_Keys(COLUMN_NAME sysname);
 
 	DECLARE @keys_query NVARCHAR(1000) = '
+	INSERT INTO #Shared_Keys
+
 	SELECT COLUMN_NAME FROM ' + @database + '.INFORMATION_SCHEMA.KEY_COLUMN_USAGE
 	WHERE TABLE_SCHEMA = @source_schema AND TABLE_NAME = @source_tablename
 
@@ -329,8 +335,7 @@ BEGIN
 
 	SELECT COLUMN_NAME FROM ' + @target_db + '.INFORMATION_SCHEMA.KEY_COLUMN_USAGE
 	WHERE TABLE_SCHEMA = @target_schema AND TABLE_NAME = @target_tablename';
-
-	INSERT INTO @Shared_Keys
+	
 	EXEC sp_executesql
 		@keys_query,
 		N'@source_schema sysname, @source_tablename sysname, @target_schema sysname, @target_tablename sysname',
@@ -343,9 +348,11 @@ BEGIN
 	SET @cols_to_join_on =
 		STUFF((
 				SELECT ',''' + COLUMN_NAME + '''' 
-				FROM @Shared_Keys 
+				FROM #Shared_Keys 
 				FOR XML PATH('')
 			), 1, 1, '');
+
+	DROP TABLE #Shared_Keys;
 END
 
 
@@ -394,9 +401,7 @@ IF ((@cols_to_join_on IS NOT NULL) AND (PATINDEX('''%''',@cols_to_join_on) = 0))
 	RAISERROR('Invalid use of @include_values',16,1)
 	PRINT 'Using @hash_compare_column together with @include_values is currenty unsupported. Our intention is to support this in the future, however for now @hash_compare_column can only be specified when @include_values=0'
 	RETURN -1 --Failure. Reason: Invalid use of @include_values property
- END
-
- PRINT 'CHECK 1';
+ END 
 
 --Checking to see if the database name is specified along wih the table name
 --Your database context should be local to the table for which you want to generate a MERGE statement
@@ -487,8 +492,6 @@ DECLARE @Column_ID int,
 	END	
 
  END
- 
-  PRINT 'CHECK 2';
 
 --Variable Initialization
 SET @IDN = ''
