@@ -274,6 +274,7 @@ END
 DECLARE @target_db NVARCHAR(100), @target_schema NVARCHAR(100), @target_tablename NVARCHAR(100);
 EXEC dbo.sp_parse_verify_table @table_path=@target_table, @parsed_db=@target_db OUTPUT, @parsed_schema=@target_schema OUTPUT, @parsed_tablename=@target_tablename OUTPUT;
 
+SET @target_table = QUOTENAME(@target_db) + '.' + QUOTENAME(@target_schema) + '.' + QUOTENAME(@target_tablename);
 
 IF (@cols_to_include IS NULL) AND (@cols_to_exclude IS NULL)
 BEGIN
@@ -395,6 +396,8 @@ IF ((@cols_to_join_on IS NOT NULL) AND (PATINDEX('''%''',@cols_to_join_on) = 0))
 	RETURN -1 --Failure. Reason: Invalid use of @include_values property
  END
 
+ PRINT 'CHECK 1';
+
 --Checking to see if the database name is specified along wih the table name
 --Your database context should be local to the table for which you want to generate a MERGE statement
 --specifying the database name is not allowed
@@ -485,6 +488,7 @@ DECLARE @Column_ID int,
 
  END
  
+  PRINT 'CHECK 2';
 
 --Variable Initialization
 SET @IDN = ''
@@ -616,6 +620,7 @@ END
  GOTO SKIP_LOOP
  END
  END
+
 
  --Determining the data type of the column and depending on the data type, the VALUES part of
  --the MERGE statement is generated. Care is taken to handle columns with NULL values. Also
