@@ -244,10 +244,11 @@ IF @source_table IS NULL AND @table_name IS NULL
  BEGIN
  RAISERROR('Use either @table_name or @source_table. Do not use both the parameters at once',16,1)
  RETURN -1 --Failure. Reason: Both @cols_to_include and @cols_to_exclude parameters are specified
- END
+ END;
+
 
 IF @source_table IS NOT NULL
-BEGIN
+BEGIN	
 
 	EXEC dbo.sp_ParseVerifyAndCleanTable 
 		@table_path=@source_table, 
@@ -257,7 +258,7 @@ BEGIN
 
 	SET @database = COALESCE(@database, DB_NAME()); --this code only allows the default DB so we'll override whatever is in @source_table
 
-	IF OBJECT_ID(@database) != OBJECT_ID(DB_NAME())
+	IF DB_ID(@database) <> DB_ID(DB_NAME())
 		BEGIN
 		RAISERROR('The database specified in @source_table must equal DB_NAME() (the current database).',16,1)
 		RETURN -1 --Failure. Reason: Both @cols_to_include and @cols_to_exclude parameters are specified
