@@ -270,11 +270,14 @@ BEGIN
 	SET @schema = COALESCE(@schema, SCHEMA_NAME());
 END
 
+
+DECLARE @target_db NVARCHAR(100), @target_schema NVARCHAR(100), @target_tablename NVARCHAR(100);
+EXEC dbo.sp_parse_verify_table @table_path=@target_table, @parsed_db=@target_db OUTPUT, @parsed_schema=@target_schema OUTPUT, @parsed_tablename=@target_tablename OUTPUT;
+
+
 IF (@cols_to_include IS NULL) AND (@cols_to_exclude IS NULL)
 BEGIN
-	DECLARE @target_db NVARCHAR(100), @target_schema NVARCHAR(100), @target_tablename NVARCHAR(100);
-	EXEC dbo.sp_parse_verify_table @table_path=@target_table, @parsed_db=@target_db OUTPUT, @parsed_schema=@target_schema OUTPUT, @parsed_tablename=@target_tablename OUTPUT;
-
+	
 	DECLARE @Shared_Columns TABLE(COLUMN_NAME sysname);
 
 	DECLARE @diff_query NVARCHAR(1000) = '
@@ -306,6 +309,39 @@ BEGIN
 		STUFF((
 				SELECT ',''' + COLUMN_NAME + '''' 
 				FROM @Shared_Columns 
+				FOR XML PATH('')
+			), 1, 1, '');
+END
+
+IF @cols_to_join_on IS NULL
+BEGIN
+	PRINT 'setting @cols_to_join_on...';
+
+	DECLARE @Shared_Keys TABLE(COLUMN_NAME sysname);
+
+	DECLARE @keys_query NVARCHAR(1000) = '
+	SELECT COLUMN_NAME FROM ' + @database + '.INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+	WHERE TABLE_SCHEMA = @source_tablename AND TABLE_NAME = @source_tablename
+
+	UNION
+
+	SELECT COLUMN_NAME FROM ' + @target_db + '.INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+	WHERE TABLE_SCHEMA = @target_schema AND TABLE_NAME = @target_tablename';
+
+	INSERT INTO @Shared_Keys
+	EXEC sp_executesql
+		@diff_query,
+		N'@source_schema sysname, @source_tablename sysname, @target_schema sysname, @target_tablename sysname',
+		@schema,
+		@table_name,
+		@target_schema,
+		@target_tablename;
+	
+
+	SET @cols_to_join_on =
+		STUFF((
+				SELECT ',''' + COLUMN_NAME + '''' 
+				FROM @Shared_Keys 
 				FOR XML PATH('')
 			), 1, 1, '');
 END
