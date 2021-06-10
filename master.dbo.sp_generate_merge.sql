@@ -255,7 +255,13 @@ BEGIN
 		@parsed_schema=@schema OUTPUT, 
 		@parsed_tablename=@table_name OUTPUT;
 
-	SET @database = DB_NAME(); --this code only allows the default DB so we'll override whatever is in @source_table
+	SET @database = COALESCE(@database, DB_NAME()); --this code only allows the default DB so we'll override whatever is in @source_table
+
+	IF OBJECT_ID(@database) != OBJECT_ID(DB_NAME())
+		BEGIN
+		RAISERROR('The database specified in @source_table must equal DB_NAME() (the current database).',16,1)
+		RETURN -1 --Failure. Reason: Both @cols_to_include and @cols_to_exclude parameters are specified
+		END
 END
 ELSE
 BEGIN
@@ -267,7 +273,6 @@ IF (@cols_to_include IS NULL) AND (@cols_to_exclude IS NULL)
 BEGIN
 	DECLARE @target_db NVARCHAR(100), @target_schema NVARCHAR(100), @target_tablename NVARCHAR(100);
 	EXEC dbo.sp_ParseVerifyAndCleanTable @table_path=@target_table, @parsed_db=@target_db OUTPUT, @parsed_schema=@target_schema OUTPUT, @parsed_tablename=@target_tablename OUTPUT;
-	SELECT @target_db, @target_schema, @target_tablename;
 
 	DECLARE @Shared_Columns TABLE(COLUMN_NAME sysname);
 
@@ -483,8 +488,8 @@ BEGIN
  END
 END
 
-SET @Source_Table_Qualified = QUOTENAME(COALESCE(@schema,SCHEMA_NAME())) + '.' + QUOTENAME(@Internal_Table_Name)
-SET @Source_Table_For_Output = QUOTENAME(COALESCE(@schema,SCHEMA_NAME())) + '.' + QUOTENAME(@table_name)
+SET @Source_Table_Qualified = QUOTENAME(COALESCE(@database, DB_NAME())) + '.' + QUOTENAME(COALESCE(@schema,SCHEMA_NAME())) + '.' + QUOTENAME(@Internal_Table_Name)
+SET @Source_Table_For_Output = QUOTENAME(COALESCE(@database, DB_NAME())) + '.' + QUOTENAME(COALESCE(@schema,SCHEMA_NAME())) + '.' + QUOTENAME(@table_name)
 
 --To get the first column's ID
 SELECT @Column_ID = MIN(ORDINAL_POSITION) 
