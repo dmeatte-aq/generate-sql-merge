@@ -5,19 +5,58 @@ PRINT 'Using Master database'
 USE master
 GO
 
+
 PRINT 'Checking for the existence of this procedure'
+IF (SELECT OBJECT_ID('sp_parse_verify_table','P')) IS NOT NULL --means, the procedure already exists
+ BEGIN
+ PRINT '[sp_parse_verify_table] already exists. So, dropping it'
+ DROP PROC sp_parse_verify_table
+ END
+
+GO
+
 IF (SELECT OBJECT_ID('sp_generate_merge','P')) IS NOT NULL --means, the procedure already exists
  BEGIN
- PRINT 'Procedure already exists. So, dropping it'
+ PRINT '[sp_generate_merge] already exists. So, dropping it'
  DROP PROC sp_generate_merge
  END
+
+GO
+
+CREATE PROCEDURE dbo.sp_parse_verify_table
+	@table_path NVARCHAR(776),
+	@parsed_db sysname OUTPUT,
+	@parsed_schema sysname OUTPUT,
+	@parsed_tablename sysname OUTPUT
+AS
+BEGIN
+	SET @parsed_db = COALESCE(PARSENAME(@table_path, 3), DB_NAME());
+	SET @parsed_schema = COALESCE(PARSENAME(@table_path, 2), SCHEMA_NAME());	
+	SET @parsed_tablename = PARSENAME(@table_path, 1);
+
+	--verify the db name exists and it's safe to inject.
+	SELECT TOP 1 @parsed_db = name
+	FROM sys.databases
+	WHERE name = @parsed_db
+	ORDER BY database_id;
+
+
+	--verify and clean the schema
+	DECLARE @schema_cleaner_query NVARCHAR(300) = 'SELECT top 1 @schema_nameOUT = name FROM '+ @parsed_db + '.sys.schemas where name = @schema_name ORDER BY schema_id';
+	EXEC sp_executesql 
+		@schema_cleaner_query, 
+		N'@schema_name sysname, @schema_nameOUT sysname OUTPUT', 
+		@parsed_schema, @schema_nameOUT=@parsed_schema OUTPUT;
+END
+
 GO
 
 --Turn system object marking on
 
 CREATE PROC [sp_generate_merge]
 (
- @table_name nvarchar(776), -- The table/view for which the MERGE statement will be generated using the existing data. This parameter accepts unquoted single-part identifiers only (e.g. MyTable)
+ @table_name nvarchar(776) = NULL, -- The table/view for which the MERGE statement will be generated using the existing data. This parameter accepts unquoted single-part identifiers only (e.g. MyTable)
+ @source_table nvarchar(776) = NULL, --a way to specfic table name and schema together
  @target_table nvarchar(776) = NULL, -- Use this parameter to specify a different table name into which the data will be inserted/updated/deleted. This parameter accepts unquoted single-part identifiers (e.g. MyTable) or quoted multi-part identifiers (e.g. [OtherDb].[dbo].[MyTable])
  @from nvarchar(max) = NULL, -- Use this parameter to filter the rows based on a filter condition (using WHERE). Note: To avoid inconsistent ordering of results, including an ORDER BY clause is highly recommended
  @include_values bit = 1, -- When 1, a VALUES clause containing data from @table_name is generated. When 0, data will be sourced directly from @table_name when the MERGE is executed (see example 15 for use case)
@@ -198,6 +237,72 @@ EXEC tempdb.dbo.sp_generate_merge @table_name='#CurrencyRateFiltered', @target_t
 ***********************************************************************************************************/
 
 SET NOCOUNT ON
+
+DECLARE @database NVARCHAR(776);
+
+IF @source_table IS NULL AND @table_name IS NULL
+ BEGIN
+ RAISERROR('Use either @table_name or @source_table. Do not use both the parameters at once',16,1)
+ RETURN -1 --Failure. Reason: Both @cols_to_include and @cols_to_exclude parameters are specified
+ END
+
+IF @source_table IS NOT NULL
+BEGIN
+
+	EXEC dbo.sp_ParseVerifyAndCleanTable 
+		@table_path=@source_table, 
+		@parsed_db=@database OUTPUT, 
+		@parsed_schema=@schema OUTPUT, 
+		@parsed_tablename=@table_name OUTPUT;
+
+	SET @database = DB_NAME(); --this code only allows the default DB so we'll override whatever is in @source_table
+END
+ELSE
+BEGIN
+	SET @database = DB_NAME();
+	SET @schema = COALESCE(@schema, SCHEMA_NAME());
+END
+
+IF (@cols_to_include IS NULL) AND (@cols_to_exclude IS NULL)
+BEGIN
+	DECLARE @target_db NVARCHAR(100), @target_schema NVARCHAR(100), @target_tablename NVARCHAR(100);
+	EXEC dbo.sp_ParseVerifyAndCleanTable @table_path=@target_table, @parsed_db=@target_db OUTPUT, @parsed_schema=@target_schema OUTPUT, @parsed_tablename=@target_tablename OUTPUT;
+	SELECT @target_db, @target_schema, @target_tablename;
+
+	DECLARE @Shared_Columns TABLE(COLUMN_NAME sysname);
+
+	DECLARE @diff_query NVARCHAR(1000) = '
+	SELECT COLUMN_NAME
+	FROM ' + @database + '.INFORMATION_SCHEMA.COLUMNS src
+	WHERE 
+		src.TABLE_NAME = @source_tablename AND
+		src.TABLE_SCHEMA = @source_schema
+
+	INTERSECT
+
+	SELECT COLUMN_NAME 
+	FROM ' + @target_db + '.INFORMATION_SCHEMA.COLUMNS targ
+	WHERE 
+		targ.TABLE_NAME = @target_tablename AND
+		targ.TABLE_SCHEMA = @target_schema';
+
+	INSERT INTO @Shared_Columns
+	EXEC sp_executesql
+		@diff_query,
+		N'@source_schema sysname, @source_tablename sysname, @target_schema sysname, @target_tablename sysname',
+		@schema,
+		@table_name,
+		@target_schema,
+		@target_tablename;
+	
+
+	SET @cols_to_include =
+		STUFF((
+				SELECT ',''' + COLUMN_NAME + '''' 
+				FROM @Shared_Columns 
+				FOR XML PATH('')
+			), 1, 1, '');
+END
 
 
 --Making sure user only uses either @cols_to_include or @cols_to_exclude
@@ -882,7 +987,7 @@ SET @output += @b + ''
 IF @results_to_text = 1
 BEGIN
 	--output the statement to the Grid/Messages tab
-	SELECT @output;
+	PRINT @output;
 END
 ELSE IF @results_to_text = 0
 BEGIN
