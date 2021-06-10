@@ -277,6 +277,7 @@ EXEC dbo.sp_parse_verify_table @table_path=@target_table, @parsed_db=@target_db 
 
 IF (@cols_to_include IS NULL) AND (@cols_to_exclude IS NULL)
 BEGIN
+	PRINT 'setting @cols_to_include...';
 	
 	DECLARE @Shared_Columns TABLE(COLUMN_NAME sysname);
 
@@ -321,7 +322,7 @@ BEGIN
 
 	DECLARE @keys_query NVARCHAR(1000) = '
 	SELECT COLUMN_NAME FROM ' + @database + '.INFORMATION_SCHEMA.KEY_COLUMN_USAGE
-	WHERE TABLE_SCHEMA = @source_tablename AND TABLE_NAME = @source_tablename
+	WHERE TABLE_SCHEMA = @source_schema AND TABLE_NAME = @source_tablename
 
 	UNION
 
@@ -330,7 +331,7 @@ BEGIN
 
 	INSERT INTO @Shared_Keys
 	EXEC sp_executesql
-		@diff_query,
+		@keys_query,
 		N'@source_schema sysname, @source_tablename sysname, @target_schema sysname, @target_tablename sysname',
 		@schema,
 		@table_name,
