@@ -250,7 +250,7 @@ IF @source_table IS NULL AND @table_name IS NULL
 IF @source_table IS NOT NULL
 BEGIN	
 
-	EXEC dbo.sp_ParseVerifyAndCleanTable 
+	EXEC dbo.sp_parse_verify_table 
 		@table_path=@source_table, 
 		@parsed_db=@database OUTPUT, 
 		@parsed_schema=@schema OUTPUT, 
@@ -273,7 +273,7 @@ END
 IF (@cols_to_include IS NULL) AND (@cols_to_exclude IS NULL)
 BEGIN
 	DECLARE @target_db NVARCHAR(100), @target_schema NVARCHAR(100), @target_tablename NVARCHAR(100);
-	EXEC dbo.sp_ParseVerifyAndCleanTable @table_path=@target_table, @parsed_db=@target_db OUTPUT, @parsed_schema=@target_schema OUTPUT, @parsed_tablename=@target_tablename OUTPUT;
+	EXEC dbo.sp_parse_verify_table @table_path=@target_table, @parsed_db=@target_db OUTPUT, @parsed_schema=@target_schema OUTPUT, @parsed_tablename=@target_tablename OUTPUT;
 
 	DECLARE @Shared_Columns TABLE(COLUMN_NAME sysname);
 
@@ -993,7 +993,7 @@ SET @output += @b + ''
 IF @results_to_text = 1
 BEGIN
 	--output the statement to the Grid/Messages tab
-	PRINT @output;
+	SELECT @output;
 END
 ELSE IF @results_to_text = 0
 BEGIN
